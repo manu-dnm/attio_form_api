@@ -1,10 +1,12 @@
 <?php
 
+include('env.php');
+
 // --- CONFIGURACIÓN ---
 
 // ¡¡ NUNCA USES LA CLAVE DIRECTAMENTE EN CÓDIGO DE PRODUCCIÓN !!
 // ¡¡ USA VARIABLES DE ENTORNO U OTRO MÉTODO SEGURO !!
-$attioApiKey = 'b201f2d5e696252ff74f9e564683e2c9909f4c2e76cfc8793333274824649056'; // <-- ¡¡ REEMPLAZA Y PROTEGE !!
+$attioApiKey = $ATTIO_API_KEY; // <-- ¡¡ REEMPLAZA Y PROTEGE !!
 
 // Registros a obtener: [slug => record_id]
 $recordsToFetch = [

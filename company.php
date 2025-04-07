@@ -1,4 +1,5 @@
 <?php
+include('env.php');
 
 // Habilitar CORS (copiado de tu index.php)
 header('Access-Control-Allow-Origin: *'); // Permite solicitudes desde cualquier origen (*). Cambia '*' por el dominio específico si lo deseas
@@ -39,7 +40,7 @@ if (!isset($_GET['id']) || empty(trim($_GET['id']))) {
 $companyId = trim($_GET['id']);
 
 // 2. Preparar la solicitud a la API de Attio
-$attioApiKey = 'b201f2d5e696252ff74f9e564683e2c9909f4c2e76cfc8793333274824649056'; // <-- ¡REEMPLAZA ESTO CON TU API KEY REAL!
+$attioApiKey = $ATTIO_API_KEY; // <-- ¡REEMPLAZA ESTO CON TU API KEY REAL!
 // Asegúrate que el objeto es 'companies' y el endpoint es el correcto
 $attioApiUrl = "https://api.attio.com/v2/objects/companies/records/" . urlencode($companyId);
 

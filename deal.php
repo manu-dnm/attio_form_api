@@ -1,5 +1,7 @@
 <?php
 
+include('env.php');
+
 // Habilitar CORS
 header('Access-Control-Allow-Origin: *'); // O especifica tu dominio
 header('Access-Control-Allow-Methods: GET, OPTIONS'); // Solo GET y OPTIONS
@@ -37,7 +39,7 @@ if (!isset($_GET['id']) || empty(trim($_GET['id']))) {
     response(["success" => false, "message" => "Parámetro 'id' del deal es requerido."], 400);
 }
 $dealId = trim($_GET['id']);
-$attioApiKey = 'b201f2d5e696252ff74f9e564683e2c9909f4c2e76cfc8793333274824649056'; // <-- ¡¡ REEMPLAZA ESTO CON TU API KEY !! ¡¡ Y MANTÉNLA SEGURA !!
+$attioApiKey = $ATTIO_API_KEY; // <-- ¡¡ REEMPLAZA ESTO CON TU API KEY !! ¡¡ Y MANTÉNLA SEGURA !!
 
 $objectSlug = 'deals';
 $attioApiUrl = "https://api.attio.com/v2/objects/" . $objectSlug . "/records/" . urlencode($dealId);

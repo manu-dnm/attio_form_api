@@ -1,5 +1,7 @@
 <?php
 
+include('env.php');
+
 // Habilitar CORS
 header('Access-Control-Allow-Origin: *'); // O especifica tu dominio
 header('Access-Control-Allow-Methods: GET, OPTIONS'); // Solo GET y OPTIONS
@@ -41,7 +43,7 @@ $personId = trim($_GET['id']);
 // 2. Preparar la solicitud a la API de Attio
 // !! SEGURIDAD: NO USES LA API KEY DIRECTAMENTE AQUÍ EN PRODUCCIÓN !!
 // !! USA VARIABLES DE ENTORNO O UN ARCHIVO DE CONFIGURACIÓN SEGURO !!
-$attioApiKey = 'b201f2d5e696252ff74f9e564683e2c9909f4c2e76cfc8793333274824649056'; // <-- ¡¡ REEMPLAZA ESTO CON TU API KEY !! ¡¡ Y MANTÉNLA SEGURA !!
+$attioApiKey = $ATTIO_API_KEY; // <-- ¡¡ REEMPLAZA ESTO CON TU API KEY !! ¡¡ Y MANTÉNLA SEGURA !!
 
 // !! CAMBIA 'people' SI EL SLUG DE TU OBJETO PERSONA ES DIFERENTE !!
 $objectSlug = 'people';
