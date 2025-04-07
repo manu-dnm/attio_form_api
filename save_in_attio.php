@@ -1,5 +1,7 @@
 <?php
 
+include('env.php');
+
 // --- CONFIGURACIÓN DE ERRORES ---
 ini_set('display_errors', 0); // No mostrar errores PHP al cliente
 ini_set('log_errors', 1);     // Registrar errores en el servidor
@@ -13,7 +15,7 @@ error_reporting(E_ALL);
 // --- ¡¡¡ SEGURIDAD !!! ---
 // ¡¡ NUNCA USES LA CLAVE DIRECTAMENTE EN CÓDIGO DE PRODUCCIÓN !!
 // ¡¡ USA VARIABLES DE ENTORNO U OTRO ARCHIVO DE CONFIGURACIÓN SEGURO !!
-define('ATTIO_API_KEY', 'b201f2d5e696252ff74f9e564683e2c9909f4c2e76cfc8793333274824649056'); // <-- ¡¡ REEMPLAZA Y PROTEGE !!
+define('ATTIO_API_KEY', ''); // <-- ¡¡ REEMPLAZA Y PROTEGE !!
 // --- FIN SEGURIDAD ---
 
 // --- Slugs de Objetos ---

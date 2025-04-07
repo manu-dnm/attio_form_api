@@ -1,4 +1,5 @@
 <?php
+include('env.php');
 
 // Habilitar CORS
 header('Access-Control-Allow-Origin: *'); // O especifica tu dominio
@@ -44,7 +45,7 @@ $dealId = trim($_GET['deal_id']);
 // 2. Clave API (¡MANTENER SEGURA!)
 // !! SEGURIDAD: NO USES LA API KEY DIRECTAMENTE AQUÍ EN PRODUCCIÓN !!
 // !! USA VARIABLES DE ENTORNO O UN ARCHIVO DE CONFIGURACIÓN SEGURO !!
-$attioApiKey = 'b201f2d5e696252ff74f9e564683e2c9909f4c2e76cfc8793333274824649056'; // <-- ¡¡ REEMPLAZA Y PROTEGE !!
+$attioApiKey = $ATTIO_API_KEY; // <-- ¡¡ REEMPLAZA Y PROTEGE !!
 
 // 3. Función reutilizable para llamadas a la API de Attio
 function makeAttioApiCall($objectSlug, $recordId, $apiKey) {
