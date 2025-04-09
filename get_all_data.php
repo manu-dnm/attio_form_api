@@ -109,7 +109,8 @@ $dealData = [
     "contract_start_date" => $dealValues['contract_start_date'][0]['value'] ?? null,
     "contract_end_date" => $dealValues['contract_end_date'][0]['value'] ?? null,
     "value" => isset($dealValues['value'][0]['currency_value']) ? (float)$dealValues['value'][0]['currency_value'] : null,
-    "currency_type" => $dealValues['currency_type'][0]['option']['title'] ?? null
+    "currency_type" => $dealValues['currency_type'][0]['option']['title'] ?? null,
+    "data_validation" => $dealValues['data_validation'][0]['value'] ?? null,
 ];
 
 $associatedCompanyId = $dealValues['associated_company'][0]['target_record_id'] ?? null;
@@ -144,11 +145,30 @@ if ($associatedCompanyId) {
         }
         $firstDomain = $companyValues['domains'][0]['domain'] ?? null;
 
+        // Agregar los nuevos atributos solicitados
+        $customAttribute = $companyValues['caaa1e2cfcdf6a01f5c03c60c0cd793dfeebd280_1737039659'][0]['value'] ?? null;
+        $contractEndDate = $companyValues['contract_end_date'][0]['value'] ?? null;
+        $contractValue = isset($companyValues['contract_value'][0]['currency_value']) ? 
+            (float)$companyValues['contract_value'][0]['currency_value'] : null;
+        $contractValueCurrency = $companyValues['contract_value_currency'][0]['option']['title'] ?? null;
+        
+        // Nuevos atributos agregados
+        $plan = $companyValues['plan'][0]['option']['title'] ?? null; // Asumiendo que es un campo de opción
+        $paymentTerms2 = $companyValues['payment_terms_2'][0]['option']['title'] ?? null; // Asumiendo que es un campo de texto
+
         $companyData = [
             "id" => $associatedCompanyId,
             "name" => $companyName,
             "company_legal_name" => $companyLegalName,
-            "domain" => $firstDomain
+            "domain" => $firstDomain,
+            // Campos existentes
+            "contract_start_date" => $customAttribute,
+            "contract_end_date" => $contractEndDate,
+            "contract_value" => $contractValue,
+            "contract_value_currency" => $contractValueCurrency,
+            // Nuevos campos agregados
+            "plan" => $plan,
+            "payment_terms" => $paymentTerms2
         ];
     }
 }
