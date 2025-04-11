@@ -154,10 +154,7 @@ if ($associatedCompanyId) {
         
         // Nuevos atributos agregados
         $plan = $companyValues['plan'][0]['option']['title'] ?? null; // Asumiendo que es un campo de opción
-        $paymentTerms2;
-        if ( $companyValues[0] ) {
-            $paymentTerms2 = $companyValues['payment_terms_2'][0]['option']['title'] ?? null;
-        } // Asumiendo que es un campo de texto )
+        $paymentTerms2 = $companyValues['payment_terms_2'][0]['option']['title'] ?? null; // Asumiendo que es un campo de texto
 
         $companyData = [
             "id" => $associatedCompanyId,
