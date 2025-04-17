@@ -82,7 +82,8 @@ if ($httpStatusCode >= 200 && $httpStatusCode < 300) {
     http_response_code(200);
     echo json_encode([
         "success" => true,
-        "active_companies" => $attioData['data']
+        "total" => count($attioData['data']),
+        "active_companies" => $attioData['data'][1]
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 } else {
     $errorMessage = $attioData['error']['message'] ??
