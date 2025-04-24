@@ -1,0 +1,41 @@
+Me ayudarías a corregirlo para que responda con un arreglo de billing cycles para el siguiente mes?
+Debe considerarse que la compaía activa:
+1. No tenga contract_end_date
+2. que la compañía activa tenga su last billing cycle date en el el mes actual o antes.
+3. Payment terms debe ser monthly o 15 days.
+--- Si payment terms es monthly definir la fecha de cobro con Payments Day.
+--- Si payment terms es 15 days, definir las fechas de ambos cobros de los billing cycles del mes anterior.
+
+me gustaría que devuelva con un objeto de billing cycles a crear, algo así:
+{
+    "success": true,
+    "billing_cycles": [
+        {
+            "payment_due_date": "",
+            "amount": "", // atributo de amount_4 del billing cycle más reciente
+            "amount_currency": "", // atributo amount_currency del billing cycle más reciente
+            "amount_taxes": "", // Calcular con amount_4 y amount_currency. Si amount_currency === MXN entonces amount * 1.16, de lo contrario amount * 1.
+            "billing_cycle_name": "", //Si el payment terms es Montly entonces: Generar como 'NOMBRE_DE_LA_ACTIVE_COMPANY | PLAN_DE_LA_ACTIVE_COMPANY', si es 15 days entonces: 'NOMBRE_DE_LA_ACTIVE_COMPANY | PLAN_DE_LA_ACTIVE_COMPANY | QUINCENA 1' o 'NOMBRE_DE_LA_ACTIVE_COMPANY | PLAN_DE_LA_ACTIVE_COMPANY | QUINCENA 2' según sea el caso
+            "company": {
+                "company_id": "",
+                "name": "",
+            },
+            "user": // email del user de la active_company que tenga en su type el valor 7e8205f5-edb5-42d9-a76a-4da5b6390b65 que es Finance Admin / Payments
+        }
+    ]
+}
+
+Si tienes dudas, házmelo saber:
+
+
+Cada día 10 del mes
+- Obtener todas las compaóas activas que tienen fecha de contract_end_date en el mes siguiente al actual.
+- Generar un deal como Renewal
+- Programar los recordatorios para cada fecha: 
+    - 20 días antes
+    - 10 días antes
+-Enviar recordatorios con enlace del Deal asignado a CS.
+
+Los días 20 de cada mes:
+- 
+

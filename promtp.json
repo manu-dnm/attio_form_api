@@ -1,0 +1,30 @@
+{
+  "data": {
+    "values": {
+      "users": ["{{33.values.primary_email_address[].email_address}}"],
+      "company": ["{{2.id.record_id}}"],
+      "amount_4": "{{19.amount}}",
+      "name": "{{19.name}}",
+      "payment_due_date": "{{19.due_date}}",
+      "amount": "{{19.amount_discounted}}",
+      "amount_currency": "{{1.payment_currency}}"
+    }
+  }
+}
+
+{
+    "billing_cycles": [
+        {
+            "payment_due_date": "",
+            "amount": "", // atributo de amount_4 del billing cycle más reciente
+            "amount_currency": "", // atributo amount_currency del billing cycle más reciente
+            "amount_taxes": "", // Calcular con amount_4 y amount_currency. Si amount_currency === MXN entonces amount * 1.16, de lo contrario amount * 1.
+            "billing_cycle_name": "", //Si el payment terms es Montly entonces: Generar como 'NOMBRE_DE_LA_ACTIVE_COMPANY | PLAN_DE_LA_ACTIVE_COMPANY', si es 15 days entonces: 'NOMBRE_DE_LA_ACTIVE_COMPANY | PLAN_DE_LA_ACTIVE_COMPANY | QUINCENA 1' o 'NOMBRE_DE_LA_ACTIVE_COMPANY | PLAN_DE_LA_ACTIVE_COMPANY | QUINCENA 2' según sea el caso
+            "company": {
+                "company_id": "",
+                "name": "",
+            },
+            "user": // email del user de la active_company que tenga en su type el valor 7e8205f5-edb5-42d9-a76a-4da5b6390b65 que es Finance Admin / Payments
+        }
+    ]
+}
