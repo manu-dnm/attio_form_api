@@ -427,8 +427,8 @@ try {
                 "id" => $billingCycleId, // <-- AÑADIDO AQUÍ
                 "name" => $bcDetails['name'],
                 "amount_taxes" => $bcDetails['amount_taxes'],
-                "amount_currency" => $bcDetails['amount_currency'],
-                "payment_due_date" => $formattedDueDate,
+                "amount_currency" => $bcDetails['amount_currency'][0],
+                "payment_due_date" => strval($formattedDueDate),
                 "status" => $bcDetails['status'][0] ?? null
             ],
             "user" => $financeAdminUserOutput,
