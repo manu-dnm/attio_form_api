@@ -63,6 +63,7 @@ define('BILLING_CYCLE_AMOUNT_TAXES_SLUG', 'amount_taxes');          // ¡VERIFIC
 define('BILLING_CYCLE_AMOUNT_CURRENCY_SLUG', 'amount_currency');     // ¡VERIFICAR! (Select?)
 define('BILLING_CYCLE_LINKED_COMPANY_SLUG', 'company');             // ¡VERIFICAR! (Link a Company)
 define('BILLING_CYCLE_LINKED_USERS_SLUG', 'users');                 // ¡VERIFICAR! (Link a Users)
+define('BILLING_CYCLE_STATUS_SLUG', 'status');
 
 // Atributos Company
 define('COMPANY_NAME_SLUG', 'name');
@@ -95,16 +96,31 @@ function getAttributeValue($recordData, $attributeSlug, $expectedType = 'string'
     if (isset($recordData['values']) && is_array($recordData['values'])) { $attributesSource = $recordData['values']; }
     elseif (isset($recordData['attributes']) && is_array($recordData['attributes'])) { $attributesSource = $recordData['attributes']; }
     else { return null; }
-    if (!isset($attributesSource[$attributeSlug]) || !is_array($attributesSource[$attributeSlug]) || empty($attributesSource[$attributeSlug])) { return ($expectedType === 'select_option_title') ? [] : null; } // Devuelve array vacío para títulos multi-select no encontrados
-    $returnValue = null; $isMulti = ($expectedType === 'select_option_title'); if ($isMulti) { $returnValue = []; }
-    foreach ($attributesSource[$attributeSlug] as $key => $valueEntry) {
+    if (!isset($attributesSource[$attributeSlug]) || !is_array($attributesSource[$attributeSlug]) || empty($attributesSource[$attributeSlug])) { return ($expectedType === 'select_option_title') ? [] : null; }
+
+    $returnValue = null;
+    $isMulti = ($expectedType === 'select_option_title'); // Permitir mútliples títulos (aunque status suele ser único activo)
+    if ($isMulti) { $returnValue = []; }
+
+    foreach ($attributesSource[$attributeSlug] as $valueEntry) {
         if (is_array($valueEntry) && array_key_exists('active_until', $valueEntry) && $valueEntry['active_until'] === null) {
-            // error_log("Debug getAttributeValue: Entrada $key ACTIVA encontrada para $attributeSlug. ExpectedType: $expectedType"); // Log interno opcional
-            $extractedValue = null; $actualAttributeType = $valueEntry['attribute_type'] ?? null;
+            $extractedValue = null;
+            $actualAttributeType = $valueEntry['attribute_type'] ?? null;
+
             switch ($expectedType) {
                 case 'date': try { $dateValue = $valueEntry['value'] ?? null; $extractedValue = $dateValue ? new DateTime($dateValue, new DateTimeZone('UTC')) : null; } catch (Exception $e) { $extractedValue = null; } break;
-                case 'select_option_id': $extractedValue = $valueEntry['option']['id'] ?? null; break;
-                case 'select_option_title': $extractedValue = $valueEntry['option']['title'] ?? null; break;
+                case 'select_option_id': $extractedValue = $valueEntry['option']['id'] ?? null; break; // Devuelve el objeto ID
+
+                case 'select_option_title':
+                    // --- MANEJO ESPECIAL PARA TIPO 'status' ---
+                    if ($actualAttributeType === 'status') {
+                        $extractedValue = $valueEntry['status']['title'] ?? null; // Buscar en status.title
+                    } else { // Asumir tipo 'select' estándar
+                        $extractedValue = $valueEntry['option']['title'] ?? null; // Buscar en option.title
+                    }
+                    // -----------------------------------------
+                    break; // Salir del switch, manejar multi/single abajo
+
                 case 'number': $extractedValue = ($actualAttributeType === 'currency' && isset($valueEntry['currency_value'])) ? (float)$valueEntry['currency_value'] : (isset($valueEntry['value']) ? (float)$valueEntry['value'] : null); break;
                 case 'currency_code': $extractedValue = ($actualAttributeType === 'currency' && isset($valueEntry['currency_code'])) ? $valueEntry['currency_code'] : null; break;
                 case 'email': $extractedValue = ($actualAttributeType === 'email-address') ? ($valueEntry['email_address'] ?? null) : ($valueEntry['email'] ?? null); break;
@@ -114,14 +130,22 @@ function getAttributeValue($recordData, $attributeSlug, $expectedType = 'string'
                      if ($actualAttributeType === 'personal-name') { $extractedValue = $valueEntry['full_name'] ?? $valueEntry['value'] ?? null; }
                      else { $extractedValue = $valueEntry['value'] ?? null; }
                      break;
+            } // Fin switch
+
+            // Asignar o añadir valor si se extrajo algo
+            if ($extractedValue !== null) {
+                if ($isMulti) {
+                    $returnValue[] = $extractedValue; // Añadir al array
+                    // Podríamos añadir un 'break;' aquí si sabemos que 'status' SÓLO puede tener un valor activo
+                } else {
+                    $returnValue = $extractedValue; // Asignar valor único
+                    break; // Salir del foreach para tipos de valor único
+                }
             }
-            if ($extractedValue !== null) { if ($isMulti) { $returnValue[] = $extractedValue; } else { $returnValue = $extractedValue; break; } }
-        }
-    }
-    // if ($returnValue === null && !$isMulti) { error_log("Debug getAttributeValue: No se encontró NINGUNA entrada ACTIVA para $attributeSlug."); } // Log interno opcional
-    // elseif ($isMulti && empty($returnValue)) { error_log("Debug getAttributeValue: No se encontró NINGUNA entrada ACTIVA para $attributeSlug (multi-select)."); } // Log interno opcional
+        } // Fin if (activo)
+    } // Fin foreach
     return $returnValue;
-}
+} // Fin getAttributeValue
 
 // Función para obtener IDs vinculados, revisa 'values' o 'attributes'
 function getLinkedRecordIdsFromAttributesOrValues($recordData, $attributeSlug) {
@@ -144,7 +168,9 @@ try {
     // --- PASO 1: Fetch Billing Cycles for the target month ---
     $billingCyclesUrl = "{$attioApiBaseUrl}/objects/" . BILLING_CYCLE_OBJECT_SLUG . "/records/query";
     $filterPayload = [
-        "filter" => [ BILLING_CYCLE_PAYMENT_DUE_DATE_SLUG => ['$gte' => $startDateApi, '$lt' => $endDateApiExclusive ] ],
+        "filter" => [
+            BILLING_CYCLE_PAYMENT_DUE_DATE_SLUG => ['$gte' => $startDateApi, '$lt' => $endDateApiExclusive ],
+        ],
         "limit" => 1000
     ];
     error_log("BillingReminders: Solicitando ciclos con payload: " . json_encode($filterPayload));
@@ -189,6 +215,9 @@ try {
             continue;
         }
 
+        // GET BILLING CYCLE STATUS
+        $bcStatus = getAttributeValue($bcData, BILLING_CYCLE_STATUS_SLUG, 'select_option_title');
+
         // ¡¡¡ Ajustar la función llamada si BC usa 'values' en lugar de 'attributes' para sus links !!!
         $companyIdArray = getLinkedRecordIdsFromAttributesOrValues($bcData, BILLING_CYCLE_LINKED_COMPANY_SLUG);
         $linkedUserIdsArray = getLinkedRecordIdsFromAttributesOrValues($bcData, BILLING_CYCLE_LINKED_USERS_SLUG);
@@ -203,8 +232,9 @@ try {
         // Guardar detalles usando el ID string como clave
         $billingCycleDetails[$billingCycleId] = [
             'name' => getAttributeValue($bcData, BILLING_CYCLE_NAME_SLUG, 'string'),
-            'amount_taxes' => getAttributeValue($bcData, BILLING_CYCLE_AMOUNT_TAXES_SLUG, 'number'), // O calcula si es necesario
+            'amount_taxes' => getAttributeValue($bcData, BILLING_CYCLE_AMOUNT_TAXES_SLUG, 'number'),
             'amount_currency' => getAttributeValue($bcData, BILLING_CYCLE_AMOUNT_CURRENCY_SLUG, 'select_option_title'),
+            'status' => $bcStatus, // <-- GUARDAR STATUS AQUÍ
             'due_date_obj' => $bcDueDate,
             'company_id' => $companyId,
             'user_ids' => $linkedUserIdsArray
@@ -394,10 +424,12 @@ try {
         // Construir el objeto de salida final
         $outputItem = [
             "billing_cycle" => [
+                "id" => $billingCycleId, // <-- AÑADIDO AQUÍ
                 "name" => $bcDetails['name'],
                 "amount_taxes" => $bcDetails['amount_taxes'],
                 "amount_currency" => $bcDetails['amount_currency'],
-                "payment_due_date" => $formattedDueDate
+                "payment_due_date" => $formattedDueDate,
+                "status" => $bcDetails['status'][0] ?? null
             ],
             "user" => $financeAdminUserOutput,
             "company" => [
