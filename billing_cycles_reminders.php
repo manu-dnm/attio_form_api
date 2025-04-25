@@ -1,5 +1,5 @@
 <?php
-// billing_cycles_reminders.php (v FINAL con Logs - CORREGIDO para error L.195)
+// billing_cycles_reminders.php (v FINAL - Formateo Manual de Fecha)
 
 // --- INCLUDES Y CONFIGURACIÓN INICIAL ---
 include('env.php');
@@ -61,9 +61,9 @@ define('BILLING_CYCLE_PAYMENT_DUE_DATE_SLUG', 'payment_due_date'); // ¡VERIFICA
 define('BILLING_CYCLE_NAME_SLUG', 'name');                      // ¡VERIFICAR!
 define('BILLING_CYCLE_AMOUNT_TAXES_SLUG', 'amount_taxes');          // ¡VERIFICAR! ¿O usar amount_4?
 define('BILLING_CYCLE_AMOUNT_CURRENCY_SLUG', 'amount_currency');     // ¡VERIFICAR! (Select?)
+define('BILLING_CYCLE_STATUS_SLUG', 'status');                   // ¡VERIFICAR!
 define('BILLING_CYCLE_LINKED_COMPANY_SLUG', 'company');             // ¡VERIFICAR! (Link a Company)
 define('BILLING_CYCLE_LINKED_USERS_SLUG', 'users');                 // ¡VERIFICAR! (Link a Users)
-define('BILLING_CYCLE_STATUS_SLUG', 'status');
 
 // Atributos Company
 define('COMPANY_NAME_SLUG', 'name');
@@ -89,7 +89,7 @@ function makeAttioApiRequest($url, $apiKey, $method = 'GET', $payload = null) {
     return ['response' => $response, 'http_code' => $httpCode, 'error' => $error, 'errno' => $errno];
 }
 
-// --- FUNCIONES AUXILIARES PARA OBTENER VALORES DE ATTIO (CORREGIDA v3 - con logs internos opcionales) ---
+// --- FUNCIONES AUXILIARES PARA OBTENER VALORES DE ATTIO (CORREGIDA v4 - Status y Multi-select Title) ---
 function getAttributeValue($recordData, $attributeSlug, $expectedType = 'string') {
     if ($recordData === null) { return null; }
     $attributesSource = null;
@@ -97,30 +97,17 @@ function getAttributeValue($recordData, $attributeSlug, $expectedType = 'string'
     elseif (isset($recordData['attributes']) && is_array($recordData['attributes'])) { $attributesSource = $recordData['attributes']; }
     else { return null; }
     if (!isset($attributesSource[$attributeSlug]) || !is_array($attributesSource[$attributeSlug]) || empty($attributesSource[$attributeSlug])) { return ($expectedType === 'select_option_title') ? [] : null; }
-
-    $returnValue = null;
-    $isMulti = ($expectedType === 'select_option_title'); // Permitir mútliples títulos (aunque status suele ser único activo)
-    if ($isMulti) { $returnValue = []; }
-
+    $returnValue = null; $isMulti = ($expectedType === 'select_option_title'); if ($isMulti) { $returnValue = []; }
     foreach ($attributesSource[$attributeSlug] as $valueEntry) {
         if (is_array($valueEntry) && array_key_exists('active_until', $valueEntry) && $valueEntry['active_until'] === null) {
-            $extractedValue = null;
-            $actualAttributeType = $valueEntry['attribute_type'] ?? null;
-
+            $extractedValue = null; $actualAttributeType = $valueEntry['attribute_type'] ?? null;
             switch ($expectedType) {
                 case 'date': try { $dateValue = $valueEntry['value'] ?? null; $extractedValue = $dateValue ? new DateTime($dateValue, new DateTimeZone('UTC')) : null; } catch (Exception $e) { $extractedValue = null; } break;
-                case 'select_option_id': $extractedValue = $valueEntry['option']['id'] ?? null; break; // Devuelve el objeto ID
-
+                case 'select_option_id': $extractedValue = $valueEntry['option']['id'] ?? null; break;
                 case 'select_option_title':
-                    // --- MANEJO ESPECIAL PARA TIPO 'status' ---
-                    if ($actualAttributeType === 'status') {
-                        $extractedValue = $valueEntry['status']['title'] ?? null; // Buscar en status.title
-                    } else { // Asumir tipo 'select' estándar
-                        $extractedValue = $valueEntry['option']['title'] ?? null; // Buscar en option.title
-                    }
-                    // -----------------------------------------
-                    break; // Salir del switch, manejar multi/single abajo
-
+                    if ($actualAttributeType === 'status') { $extractedValue = $valueEntry['status']['title'] ?? null; } // Manejo especial status
+                    else { $extractedValue = $valueEntry['option']['title'] ?? null; } // Select normal
+                    break;
                 case 'number': $extractedValue = ($actualAttributeType === 'currency' && isset($valueEntry['currency_value'])) ? (float)$valueEntry['currency_value'] : (isset($valueEntry['value']) ? (float)$valueEntry['value'] : null); break;
                 case 'currency_code': $extractedValue = ($actualAttributeType === 'currency' && isset($valueEntry['currency_code'])) ? $valueEntry['currency_code'] : null; break;
                 case 'email': $extractedValue = ($actualAttributeType === 'email-address') ? ($valueEntry['email_address'] ?? null) : ($valueEntry['email'] ?? null); break;
@@ -130,22 +117,11 @@ function getAttributeValue($recordData, $attributeSlug, $expectedType = 'string'
                      if ($actualAttributeType === 'personal-name') { $extractedValue = $valueEntry['full_name'] ?? $valueEntry['value'] ?? null; }
                      else { $extractedValue = $valueEntry['value'] ?? null; }
                      break;
-            } // Fin switch
-
-            // Asignar o añadir valor si se extrajo algo
-            if ($extractedValue !== null) {
-                if ($isMulti) {
-                    $returnValue[] = $extractedValue; // Añadir al array
-                    // Podríamos añadir un 'break;' aquí si sabemos que 'status' SÓLO puede tener un valor activo
-                } else {
-                    $returnValue = $extractedValue; // Asignar valor único
-                    break; // Salir del foreach para tipos de valor único
-                }
             }
-        } // Fin if (activo)
-    } // Fin foreach
-    return $returnValue;
-} // Fin getAttributeValue
+            if ($extractedValue !== null) { if ($isMulti) { $returnValue[] = $extractedValue; } else { $returnValue = $extractedValue; break; } }
+        }
+    } return $returnValue;
+}
 
 // Función para obtener IDs vinculados, revisa 'values' o 'attributes'
 function getLinkedRecordIdsFromAttributesOrValues($recordData, $attributeSlug) {
@@ -163,6 +139,7 @@ function getLinkedRecordIdsFromAttributesOrValues($recordData, $attributeSlug) {
     } return array_unique($ids);
 }
 
+
 // --- LÓGICA PRINCIPAL ---
 try {
     // --- PASO 1: Fetch Billing Cycles for the target month ---
@@ -170,8 +147,7 @@ try {
     $filterPayload = [
         "filter" => [
             BILLING_CYCLE_PAYMENT_DUE_DATE_SLUG => ['$gte' => $startDateApi, '$lt' => $endDateApiExclusive ],
-        ],
-        "limit" => 1000
+        ], "limit" => 1000
     ];
     error_log("BillingReminders: Solicitando ciclos con payload: " . json_encode($filterPayload));
     $bcResult = makeAttioApiRequest($billingCyclesUrl, $attioApiKey, 'POST', $filterPayload);
@@ -193,48 +169,30 @@ try {
     $billingCycleDetails = [];
 
     foreach ($foundBillingCycles as $bcData) {
-        // --- ROBUST BILLING CYCLE ID EXTRACTION ---
-        $billingCycleId = null;
-        if (isset($bcData['id'])) {
-            if (is_string($bcData['id'])) { $billingCycleId = $bcData['id']; }
-            elseif (is_array($bcData['id']) && array_key_exists('record_id', $bcData['id'])) {
-                 if (isset($bcData['id']['record_id']) && is_string($bcData['id']['record_id'])) { $billingCycleId = $bcData['id']['record_id']; }
-            }
-        }
-        // --- END ROBUST BILLING CYCLE ID EXTRACTION ---
-
-        if (!$billingCycleId) {
-            error_log("PASO 2: !!! ADVERTENCIA: Se omitió un ciclo de facturación porque no se pudo extraer un ID de registro válido (string). Registro: " . json_encode($bcData));
-            continue;
-        }
-        error_log("PASO 2: Procesando Billing Cycle ID: $billingCycleId"); // Log MANTENIDO
+        $billingCycleId = null; // Robust ID Extraction
+        if (isset($bcData['id'])) { if (is_string($bcData['id'])) { $billingCycleId = $bcData['id']; } elseif (is_array($bcData['id']) && array_key_exists('record_id', $bcData['id'])) { if (isset($bcData['id']['record_id']) && is_string($bcData['id']['record_id'])) { $billingCycleId = $bcData['id']['record_id']; } } }
+        if (!$billingCycleId) { error_log("PASO 2: ADVERTENCIA: BC sin ID válido."); continue; }
+        // error_log("PASO 2: Procesando BC ID: $billingCycleId"); // Log opcional
 
         $bcDueDate = getAttributeValue($bcData, BILLING_CYCLE_PAYMENT_DUE_DATE_SLUG, 'date');
-        if (!$bcDueDate) {
-            error_log("PASO 2: Ciclo $billingCycleId omitido por no tener payment_due_date válida."); // Log MANTENIDO
-            continue;
-        }
+        if (!$bcDueDate) { error_log("PASO 2: Ciclo $billingCycleId omitido (sin due_date)."); continue; }
 
-        // GET BILLING CYCLE STATUS
-        $bcStatus = getAttributeValue($bcData, BILLING_CYCLE_STATUS_SLUG, 'select_option_title');
+        $bcStatusArray = getAttributeValue($bcData, BILLING_CYCLE_STATUS_SLUG, 'select_option_title'); // Obtiene array de títulos de status
+        $bcStatus = $bcStatusArray[0] ?? null; // Tomar el primer status si existe
 
-        // ¡¡¡ Ajustar la función llamada si BC usa 'values' en lugar de 'attributes' para sus links !!!
+        // Ajustar getLinkedRecordIds... si BC usa 'values'
         $companyIdArray = getLinkedRecordIdsFromAttributesOrValues($bcData, BILLING_CYCLE_LINKED_COMPANY_SLUG);
         $linkedUserIdsArray = getLinkedRecordIdsFromAttributesOrValues($bcData, BILLING_CYCLE_LINKED_USERS_SLUG);
-        error_log("PASO 2: BC ID $billingCycleId - Linked Company IDs: [" . implode(',', $companyIdArray) . "]"); // Log MANTENIDO
-        error_log("PASO 2: BC ID $billingCycleId - Linked User IDs: [" . implode(',', $linkedUserIdsArray) . "]"); // Log MANTENIDO
-
 
         $companyId = $companyIdArray[0] ?? null;
         if ($companyId) { $requiredCompanyIds[] = $companyId; }
         $requiredUserIds = array_merge($requiredUserIds, $linkedUserIdsArray);
 
-        // Guardar detalles usando el ID string como clave
         $billingCycleDetails[$billingCycleId] = [
             'name' => getAttributeValue($bcData, BILLING_CYCLE_NAME_SLUG, 'string'),
             'amount_taxes' => getAttributeValue($bcData, BILLING_CYCLE_AMOUNT_TAXES_SLUG, 'number'),
-            'amount_currency' => getAttributeValue($bcData, BILLING_CYCLE_AMOUNT_CURRENCY_SLUG, 'select_option_title'),
-            'status' => $bcStatus, // <-- GUARDAR STATUS AQUÍ
+            'amount_currency' => getAttributeValue($bcData, BILLING_CYCLE_AMOUNT_CURRENCY_SLUG, 'select_option_title')[0] ?? null, // Asume single select currency
+            'status' => $bcStatus, // Guardar el título del status encontrado
             'due_date_obj' => $bcDueDate,
             'company_id' => $companyId,
             'user_ids' => $linkedUserIdsArray
@@ -243,88 +201,63 @@ try {
 
     $uniqueCompanyIds = array_values(array_unique($requiredCompanyIds));
     $uniqueUserIds = array_values(array_unique($requiredUserIds));
-    error_log("BillingReminders: IDs únicos a buscar: " . count($uniqueCompanyIds) . " Compañías, " . count($uniqueUserIds) . " Usuarios."); // Log MANTENIDO
+    error_log("BillingReminders: IDs únicos a buscar: " . count($uniqueCompanyIds) . " Compañías, " . count($uniqueUserIds) . " Usuarios.");
 
-    // --- 3. Fetch Linked Company Details ---
+    // --- PASO 3: Fetch Linked Company Details ---
     $companiesDataMap = [];
     if(!empty($uniqueCompanyIds)) {
-        error_log("BillingReminders: PASO 3: Solicitando datos para " . count($uniqueCompanyIds) . " compañías..."); // Log MANTENIDO
+        error_log("BillingReminders: PASO 3: Solicitando datos para " . count($uniqueCompanyIds) . " compañías...");
         $companiesUrl = "{$attioApiBaseUrl}/objects/" . COMPANY_OBJECT_SLUG . "/records/query";
         $companiesPayload = ["filter" => ["record_id" => ['$in' => $uniqueCompanyIds]]];
         $companiesResult = makeAttioApiRequest($companiesUrl, $attioApiKey, 'POST', $companiesPayload);
         if ($companiesResult['errno'] === 0 && $companiesResult['http_code'] >= 200 && $companiesResult['http_code'] < 300) {
             $companiesData = json_decode($companiesResult['response'], true);
             if (json_last_error() === JSON_ERROR_NONE && isset($companiesData['data'])) {
-                 $addedToMapCount = 0; // Corregido: Inicializar contador
+                $addedToMapCount = 0;
                 foreach ($companiesData['data'] as $record) {
-                    // --- ROBUST COMPANY ID EXTRACTION ---
-                    $cId = null;
-                    if (isset($record['id'])) {
-                        if (is_array($record['id']) && array_key_exists('record_id', $record['id'])) {
-                            if (isset($record['id']['record_id']) && is_string($record['id']['record_id'])) { $cId = $record['id']['record_id']; }
-                        } elseif (is_string($record['id'])) { $cId = $record['id']; }
-                    }
-                    // --- END ROBUST COMPANY ID EXTRACTION ---
-                    if ($cId !== null) {
-                         // error_log("DEBUG STEP 3 MAP: Añadiendo Compañía al mapa con clave: '$cId'"); // Log eliminado
-                        $companiesDataMap[$cId] = $record;
-                        $addedToMapCount++;
-                    } else { error_log("PASO 3: !!! ADVERTENCIA: No se pudo extraer un ID de registro válido (string) del registro de Company."); } // Log MANTENIDO
-                }
-                error_log("BillingReminders: PASO 3: Mapa de compañías llenado con $addedToMapCount registros."); // Log MANTENIDO
-            } else { error_log("BillingReminders: PASO 3: !!! ERROR JSON/Data (Companies)"); } // Log MANTENIDO
-        } else { error_log("BillingReminders: PASO 3: !!! ERROR API/cURL (Companies): Código {$companiesResult['http_code']}"); } // Log MANTENIDO
-    } else {
-         error_log("BillingReminders: PASO 3: Saltado (No se requieren Compañías)."); // Log MANTENIDO
-    }
+                    $cId = null; if (isset($record['id'])) { if (is_array($record['id']) && array_key_exists('record_id', $record['id'])) { if (isset($record['id']['record_id']) && is_string($record['id']['record_id'])) { $cId = $record['id']['record_id']; } } elseif (is_string($record['id'])) { $cId = $record['id']; } }
+                    if ($cId !== null) { $companiesDataMap[$cId] = $record; $addedToMapCount++; }
+                    // else { error_log("PASO 3: ADVERTENCIA: Compañía sin ID válido."); } // Log opcional
+                } error_log("BillingReminders: PASO 3: Mapa de compañías llenado con $addedToMapCount registros.");
+            } else { error_log("BillingReminders: PASO 3: !!! ERROR JSON/Data (Companies)"); }
+        } else { error_log("BillingReminders: PASO 3: !!! ERROR API/cURL (Companies): Código {$companiesResult['http_code']}"); }
+    } else { error_log("BillingReminders: PASO 3: Saltado (No se requieren Compañías)."); }
 
-    // --- 4. Fetch Linked User Details ---
+    // --- PASO 4: Fetch Linked User Details ---
     $usersDataMap = [];
     if (!empty($uniqueUserIds)) {
-        error_log("BillingReminders: PASO 4: Solicitando datos para " . count($uniqueUserIds) . " usuarios..."); // Log MANTENIDO
+        error_log("BillingReminders: PASO 4: Solicitando datos para " . count($uniqueUserIds) . " usuarios...");
         $usersUrl = "{$attioApiBaseUrl}/objects/" . USER_OBJECT_SLUG . "/records/query";
         $usersPayload = ["filter" => ["record_id" => ['$in' => $uniqueUserIds]]];
         $usersResult = makeAttioApiRequest($usersUrl, $attioApiKey, 'POST', $usersPayload);
         if ($usersResult['errno'] === 0 && $usersResult['http_code'] >= 200 && $usersResult['http_code'] < 300) {
             $usersData = json_decode($usersResult['response'], true);
             if (json_last_error() === JSON_ERROR_NONE && isset($usersData['data'])) {
-                 $addedToMapCount = 0;
-                foreach ($usersData['data'] as $record) {
-                    // Asume User usa id.record_id - ¡AJUSTAR SI ES NECESARIO!
-                     $uId = $record['id']['record_id'] ?? null;
-                     if ($uId) { $usersDataMap[$uId] = $record; $addedToMapCount++; }
-                     else { error_log("PASO 4: !!! ADVERTENCIA: Registro de User sin ['id']['record_id']."); } // Log MANTENIDO
-                }
-                error_log("BillingReminders: PASO 4: Mapa de usuarios llenado con $addedToMapCount registros."); // Log MANTENIDO
-            } else { error_log("BillingReminders: PASO 4: !!! ERROR JSON/Data (Users)"); } // Log MANTENIDO
-        } else { error_log("BillingReminders: PASO 4: !!! ERROR API/cURL (Users): Código {$usersResult['http_code']}"); } // Log MANTENIDO
-    } else {
-         error_log("BillingReminders: PASO 4: Saltado (No se requieren Usuarios)."); // Log MANTENIDO
-    }
+                $addedToMapCount = 0;
+                foreach ($usersData['data'] as $record) { $uId = $record['id']['record_id'] ?? null; if ($uId) { $usersDataMap[$uId] = $record; $addedToMapCount++; } /* else { error_log("PASO 4: ADVERTENCIA: User sin ID válido."); } */ }
+                error_log("BillingReminders: PASO 4: Mapa de usuarios llenado con $addedToMapCount registros.");
+            } else { error_log("BillingReminders: PASO 4: !!! ERROR JSON/Data (Users)"); }
+        } else { error_log("BillingReminders: PASO 4: !!! ERROR API/cURL (Users): Código {$usersResult['http_code']}"); }
+    } else { error_log("BillingReminders: PASO 4: Saltado (No se requieren Usuarios)."); }
 
-    // --- 5. Extract Linked Person IDs from Users ---
+    // --- PASO 5: Extract Linked Person IDs from Users ---
     $requiredPersonIds = [];
     $userToPersonIdMap = [];
-    error_log("BillingReminders: PASO 5: Extrayendo IDs de personas desde " . count($usersDataMap) . " usuarios..."); // Log MANTENIDO
+    error_log("BillingReminders: PASO 5: Extrayendo IDs de personas desde " . count($usersDataMap) . " usuarios...");
     foreach($usersDataMap as $userId => $userData) {
-        // Asume User usa 'values' para el link a Person
         $personIdArray = getAttributeValue($userData, USER_LINKED_PERSON_SLUG, 'record_reference');
         if (!empty($personIdArray) && isset($personIdArray[0])) {
-            $personId = $personIdArray[0];
-            $userToPersonIdMap[$userId] = $personId;
-            $requiredPersonIds[] = $personId;
-             error_log("BillingReminders: PASO 5: User '$userId' mapeado a Person '$personId'."); // Log MANTENIDO
-        } else {
-             error_log("BillingReminders: PASO 5: User '$userId' no tiene Person vinculado o no se pudo extraer."); // Log MANTENIDO
-        }
+            $personId = $personIdArray[0]; $userToPersonIdMap[$userId] = $personId; $requiredPersonIds[] = $personId;
+            // error_log("BillingReminders: PASO 5: User '$userId' mapeado a Person '$personId'."); // Log opcional
+        } // else { error_log("BillingReminders: PASO 5: User '$userId' no tiene Person vinculado."); } // Log opcional
     }
     $uniquePersonIds = array_values(array_unique($requiredPersonIds));
-    error_log("BillingReminders: PASO 5: IDs únicos de Personas a buscar: " . count($uniquePersonIds)); // Log MANTENIDO
+    error_log("BillingReminders: PASO 5: IDs únicos de Personas a buscar: " . count($uniquePersonIds));
 
-    // --- 6. Fetch Linked Person Details ---
+    // --- PASO 6: Fetch Linked Person Details ---
     $personsDataMap = [];
     if (!empty($uniquePersonIds)) {
-        error_log("BillingReminders: PASO 6: Solicitando datos para " . count($uniquePersonIds) . " personas..."); // Log MANTENIDO
+        error_log("BillingReminders: PASO 6: Solicitando datos para " . count($uniquePersonIds) . " personas...");
         $personsUrl = "{$attioApiBaseUrl}/objects/" . PERSON_OBJECT_SLUG . "/records/query";
         $personsPayload = ["filter" => ["record_id" => ['$in' => $uniquePersonIds]]];
         $personsResult = makeAttioApiRequest($personsUrl, $attioApiKey, 'POST', $personsPayload);
@@ -332,51 +265,46 @@ try {
             $personsApiResponse = json_decode($personsResult['response'], true);
             if (json_last_error() === JSON_ERROR_NONE && isset($personsApiResponse['data'])) {
                  $addedToMapCount = 0;
-                foreach($personsApiResponse['data'] as $personData) {
-                    // Asume Person usa 'id' string - ¡AJUSTAR SI ES NECESARIO!
-                    $pId = $personData['id'] ?? null;
-                    if ($pId && is_string($pId)) { $personsDataMap[$pId] = $personData; $addedToMapCount++;}
-                    else { error_log("BillingReminders: PASO 6: !!! ADVERTENCIA: Registro de Person sin ID string válido.");} // Log MANTENIDO
-                }
-                 error_log("BillingReminders: PASO 6: Mapa de personas llenado con $addedToMapCount registros."); // Log MANTENIDO
-            } else { error_log("BillingReminders: PASO 6: !!! ERROR JSON/Data al obtener personas."); } // Log MANTENIDO
-        } else { error_log("BillingReminders: PASO 6: !!! ERROR API/cURL al obtener personas: Código {$personsResult['http_code']}"); } // Log MANTENIDO
-    } else {
-         error_log("BillingReminders: PASO 6: Saltado (No se requieren Personas)."); // Log MANTENIDO
-    }
+                foreach($personsApiResponse['data'] as $personData) { $pId = $personData['id'] ?? null; if ($pId && is_string($pId)) { $personsDataMap[$pId] = $personData; $addedToMapCount++;} /* else { error_log("PASO 6: ADVERTENCIA: Person sin ID válido.");} */ }
+                 error_log("BillingReminders: PASO 6: Mapa de personas llenado con $addedToMapCount registros.");
+            } else { error_log("BillingReminders: PASO 6: !!! ERROR JSON/Data al obtener personas."); }
+        } else { error_log("BillingReminders: PASO 6: !!! ERROR API/cURL al obtener personas: Código {$personsResult['http_code']}"); }
+    } else { error_log("BillingReminders: PASO 6: Saltado (No se requieren Personas)."); }
 
     // --- 7. Format Final Output ---
-    error_log("BillingReminders: PASO 7: Formateando salida para $foundBCCount ciclos encontrados..."); // Log MANTENIDO
+    error_log("BillingReminders: PASO 7: Formateando salida para $foundBCCount ciclos encontrados...");
     $outputData = [];
 
-    // Configurar formateador de fecha en español (si está disponible Intl)
-    $dateFormatter = null;
-    if (class_exists('IntlDateFormatter')) {
+    // Array para formateo manual de fecha si Intl no está disponible
+    $meses = [ 1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril', 5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto', 9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre' ];
+    $dateFormatter = null; // Inicializar
+    if (class_exists('IntlDateFormatter')) { // Intentar usar Intl
         try {
-             $pattern = 'dd \'de\' MMMM \'del\' yyyy'; // Formato deseado
-             $dateFormatter = new IntlDateFormatter('es_MX', IntlDateFormatter::NONE, IntlDateFormatter::NONE, null, null, $pattern)
-                          ?: new IntlDateFormatter('es', IntlDateFormatter::NONE, IntlDateFormatter::NONE, null, null, $pattern);
-             if ($dateFormatter->getErrorCode() !== 0) { error_log("BillingReminders: Error al crear IntlDateFormatter: " . $dateFormatter->getErrorMessage()); $dateFormatter = null; }
-        } catch (Exception $e) { error_log("BillingReminders: Excepción al crear IntlDateFormatter: " . $e->getMessage()); $dateFormatter = null; }
-    } else { error_log("BillingReminders: Extensión Intl de PHP no encontrada. Fechas como YYYY-MM-DD."); }
+             $pattern = 'dd \'de\' MMMM \'del\' rollerskates'; $dateFormatter = new IntlDateFormatter('es_MX', IntlDateFormatter::NONE, IntlDateFormatter::NONE, null, null, $pattern) ?: new IntlDateFormatter('es', IntlDateFormatter::NONE, IntlDateFormatter::NONE, null, null, $pattern);
+             if ($dateFormatter->getErrorCode() !== 0) { $dateFormatter = null; } // Fallback si hay error
+        } catch (Exception $e) { $dateFormatter = null; }
+    } // Si Intl no existe o falló, $dateFormatter será null
 
-    // Iterar sobre los detalles de ciclos guardados previamente
+
     foreach ($billingCycleDetails as $billingCycleId => $bcDetails) {
-        error_log("BillingReminders: -- Procesando Ciclo ID: $billingCycleId --"); // Log MANTENIDO
+        // error_log("BillingReminders: -- Procesando Ciclo ID: $billingCycleId --"); // Log opcional
 
-        $bcDueDateObj = $bcDetails['due_date_obj'];
+        $bcDueDateObj = $bcDetails['due_date_obj']; // Objeto DateTime
 
         $reminderDateBefore = (clone $bcDueDateObj)->modify('-5 days')->format('Y-m-d');
         $reminderDateAfter = (clone $bcDueDateObj)->modify('+5 days')->format('Y-m-d');
-
-        $formattedDueDate = $bcDueDateObj->format('Y-m-d'); // Fallback
         $rawDueDate = $bcDueDateObj->format('Y-m-d');
-        if ($dateFormatter) {
+
+        // Formatear fecha
+        $formattedDueDate = $rawDueDate; // Formato YYYY-MM-DD por defecto
+        if ($dateFormatter) { // Intentar con Intl si está disponible
             $formattedDateOrFalse = $dateFormatter->format($bcDueDateObj);
             if ($formattedDateOrFalse !== false) { $formattedDueDate = $formattedDateOrFalse; }
-            // else { error_log("BillingReminders: Falló formateo localizado para fecha..."); } // Log opcional
+        } else { // Formateo manual como fallback si Intl no funcionó
+            $day = $bcDueDateObj->format('d'); $monthNum = (int)$bcDueDateObj->format('n'); $year = $bcDueDateObj->format('Y'); $monthName = $meses[$monthNum] ?? $bcDueDateObj->format('m');
+            $formattedDueDate = "$day de $monthName del $year";
         }
-        error_log("BillingReminders: BC ID $billingCycleId - DueDate: {$formattedDueDate}, Reminder Before: $reminderDateBefore, After: $reminderDateAfter"); // Log MANTENIDO
+        // error_log("BillingReminders: BC ID $billingCycleId - DueDate: {$formattedDueDate}..."); // Log opcional
 
         // Datos de la Compañía
         $companyName = null; $companyLegalName = null;
@@ -385,51 +313,42 @@ try {
             $companyData = $companiesDataMap[$companyId];
             $companyName = getAttributeValue($companyData, COMPANY_NAME_SLUG, 'string');
             $companyLegalName = getAttributeValue($companyData, COMPANY_LEGAL_NAME_SLUG, 'string');
-            error_log("BillingReminders: BC ID $billingCycleId - Company Found: ID=$companyId, Name=$companyName, LegalName=$companyLegalName"); // Log MANTENIDO
-        } else {
-            error_log("BillingReminders: BC ID $billingCycleId - Company Data NOT FOUND for ID: " . ($companyId ?? 'N/A')); // Log MANTENIDO
-        }
+        } // else { error_log("BillingReminders: BC ID $billingCycleId - Company Data NOT FOUND..."); } // Log opcional
 
         // Datos del Usuario (Primer Finance Admin encontrado) y Persona
         $financeAdminUserOutput = [ "name" => null, "email" => null, "phone" => null ];
-        $foundFinanceAdmin = false; // Flag
-        error_log("BillingReminders: BC ID $billingCycleId - Buscando Finance Admin entre usuarios: [" . implode(', ', $bcDetails['user_ids']) . "]"); // Log MANTENIDO
+        // error_log("BillingReminders: BC ID $billingCycleId - Buscando Finance Admin..."); // Log opcional
         foreach ($bcDetails['user_ids'] as $userId) {
             if (isset($usersDataMap[$userId])) {
                  $userData = $usersDataMap[$userId];
                  $userTypesArray = getAttributeValue($userData, USER_TYPE_ATTRIBUTE_SLUG, 'select_option_title');
-                 error_log("BillingReminders:   - Checking User ID $userId. Types: " . json_encode($userTypesArray)); // Log MANTENIDO
+                 // error_log("BillingReminders:   - Checking User ID $userId. Types: ..."); // Log opcional
                  if (is_array($userTypesArray) && in_array(USER_TYPE_FINANCE_ADMIN_TITLE, $userTypesArray)) {
-                    error_log("BillingReminders:     --> Encontrado Finance Admin: User ID $userId"); // Log MANTENIDO
-                    $foundFinanceAdmin = true;
+                    // error_log("BillingReminders:     --> Encontrado Finance Admin: User ID $userId"); // Log opcional
                     $personId = $userToPersonIdMap[$userId] ?? null;
                     if ($personId && isset($personsDataMap[$personId])) {
                         $personData = $personsDataMap[$personId];
-                        error_log("BillingReminders:       Fetching details from Person ID $personId"); // Log MANTENIDO
+                        // error_log("BillingReminders:       Fetching details from Person ID $personId"); // Log opcional
                         $financeAdminUserOutput['name'] = getAttributeValue($personData, PERSON_NAME_SLUG, 'string');
                         $financeAdminUserOutput['email'] = getAttributeValue($personData, PERSON_EMAIL_SLUG, 'email');
                         $financeAdminUserOutput['phone'] = getAttributeValue($personData, PERSON_PHONE_SLUG, 'phone');
-                         error_log("BillingReminders:       Person Details: Name=" .($financeAdminUserOutput['name']??'null').", Email=".($financeAdminUserOutput['email']??'null').", Phone=".($financeAdminUserOutput['phone']??'null')); // Log MANTENIDO
-                    } else {
-                         error_log("BillingReminders:       Finance Admin User $userId encontrado, pero no se encontró Person ID '$personId' o sus datos."); // Log MANTENIDO
-                    }
-                    break; // Salir al encontrar el primero
+                         // error_log("BillingReminders:       Person Details: Name=..."); // Log opcional
+                    } // else { error_log("BillingReminders:       Finance Admin User $userId encontrado, pero no se encontró Person ID..."); } // Log opcional
+                    break;
                  }
-            } else {
-                 error_log("BillingReminders:   - !!! ADVERTENCIA: Datos para User ID '$userId' no estaban en el mapa \$usersDataMap."); // Log MANTENIDO
-            }
+            } // else { error_log("BillingReminders:   - ADVERTENCIA: Datos para User ID '$userId' no en mapa..."); } // Log opcional
         }
-        if (!$foundFinanceAdmin) { error_log("BillingReminders: BC ID $billingCycleId - No se encontró Finance Admin entre los usuarios vinculados."); } // Log MANTENIDO
+        // if (!$foundFinanceAdmin) { error_log("BillingReminders: BC ID $billingCycleId - No se encontró Finance Admin."); } // Log opcional
 
         // Construir el objeto de salida final
         $outputItem = [
             "billing_cycle" => [
-                "id" => $billingCycleId, // <-- AÑADIDO AQUÍ
+                "id" => $billingCycleId, // ID del Billing Cycle añadido
                 "name" => $bcDetails['name'],
                 "amount_taxes" => $bcDetails['amount_taxes'],
-                "amount_currency" => $bcDetails['amount_currency'][0],
-                "payment_due_date" => strval($formattedDueDate),
-                "status" => $bcDetails['status'][0] ?? null
+                "amount_currency" => $bcDetails['amount_currency'],
+                "payment_due_date" => $formattedDueDate,
+                "status" => $bcDetails['status'] // <-- Status añadido aquí
             ],
             "user" => $financeAdminUserOutput,
             "company" => [
@@ -454,7 +373,7 @@ try {
     echo json_encode([
         "success" => true,
         "filter_month" => $targetMonthStr,
-        "total_of_reminders" => count($outputData),
+        "total_of_reminders" => $finalGeneratedCount, // Añadido contador
         "reminders" => $outputData
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 
