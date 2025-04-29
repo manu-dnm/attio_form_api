@@ -437,10 +437,19 @@ try {
         // error_log("Compañía $companyNameLog: Cálculo Impuestos..."); // Log eliminado
 
         // Crear el objeto(s) del ciclo de facturación para la respuesta JSON FINAL
+        $totalAmountMX = $amount;
+        if ( $currency == 'USD' ) {
+            $totalAmountMX = $amount * 19;
+        }
+        if ( $currency == 'CAD' ) {
+            $totalAmountMX = $amount * 14;
+        }
+
         $baseBillingCycleOutput = [
             "amount" => $amount,
+            "amount_taxes" => $amount + $amountTaxes,
+            "total_amount_mxn" => $totalAmountMX,
             "amount_currency" => $currency,
-            "amount_taxes" => $amountTaxes,
             "company" => [ "company_id" => $companyId, "name" => $companyName ],
             "user" => $financeAdminEmail
         ];
