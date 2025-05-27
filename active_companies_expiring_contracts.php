@@ -24,10 +24,9 @@ $now = new DateTime('now', new DateTimeZone('UTC'));
 $startDateOfNextMonth = (clone $now)->modify('first day of next month')->setTime(0, 0, 0);
 $startDateOfFollowingMonth = (clone $startDateOfNextMonth)->modify('+1 month');
 
-// Formato YYYY-MM-DD para el filtro (confirmado que funciona para tipo Date)
 $startDateApi = $startDateOfNextMonth->format('Y-m-d');
 $endDateApiExclusive = $startDateOfFollowingMonth->format('Y-m-d');
-$targetMonthStr = $startDateOfNextMonth->format('Y-m'); // Para informar en la respuesta
+$targetMonthStr = $startDateOfNextMonth->format('Y-m');
 
 error_log("ActiveExpiringContracts: Buscando compañías ACTIVAS con contract_end_date >= $startDateApi Y < $endDateApiExclusive (para mes $targetMonthStr)");
 
@@ -43,6 +42,13 @@ define('COMPANY_STATUS_ACTIVE_OPTION_ID', 'b09e60c1-7d87-4209-883e-f28cc26743b0'
 define('COMPANY_CONTRACT_END_DATE_SLUG', 'contract_end_date');
 define('COMPANY_NAME_SLUG', 'name');
 
+// !!! --- NUEVAS CONSTANTES - ¡REEMPLAZA ESTOS VALORES! --- !!!
+// Asumimos que 'COMPANY_CONTRACT_VALUE_ATTRIBUTE_SLUG' es un atributo de tipo "Currency" en Attio,
+// que contiene tanto el valor como el código de moneda.
+define('COMPANY_CONTRACT_VALUE_ATTRIBUTE_SLUG', 'contract_value'); // <--- ¡REEMPLAZA CON TU SLUG REAL! Ejemplo: 'contract_value', 'deal_amount', etc.
+// Si la moneda es un atributo completamente separado (no parte de un campo "Currency"),
+// necesitarías un slug diferente y ajustar la lógica de getAttributeValue.
+
 // --- FUNCIÓN AUXILIAR cURL (Reutilizada) ---
 function makeAttioApiRequest($url, $apiKey, $method = 'GET', $payload = null) {
     $ch = curl_init(); $headers = [ 'Authorization: Bearer ' . $apiKey, 'Accept: application/json', 'Content-Type: application/json'];
@@ -53,22 +59,50 @@ function makeAttioApiRequest($url, $apiKey, $method = 'GET', $payload = null) {
     return ['response' => $response, 'http_code' => $httpCode, 'error' => $error, 'errno' => $errno];
 }
 
-// --- FUNCIÓN AUXILIAR getAttributeValue (Reutilizada - versión simplificada necesaria aquí) ---
-// (Se incluye una versión simplificada porque solo necesitamos 'string' y 'date' aquí)
+// --- FUNCIÓN AUXILIAR getAttributeValue (EXPANDIDA) ---
 function getAttributeValue($recordData, $attributeSlug, $expectedType = 'string') {
     if ($recordData === null) { return null; }
-    // Asume que Compañía usa 'values'
-    $attributesSource = $recordData['values'] ?? null;
-    if ($attributesSource === null || !isset($attributesSource[$attributeSlug]) || !is_array($attributesSource[$attributeSlug]) || empty($attributesSource[$attributeSlug])) { return null; }
+    
+    $attributesSource = $recordData['values'] ?? null; // Asume que Compañía usa 'values'
+
+    if ($attributesSource === null || !isset($attributesSource[$attributeSlug]) || !is_array($attributesSource[$attributeSlug]) || empty($attributesSource[$attributeSlug])) {
+        return null;
+    }
+
     foreach ($attributesSource[$attributeSlug] as $valueEntry) {
         if (is_array($valueEntry) && array_key_exists('active_until', $valueEntry) && $valueEntry['active_until'] === null) {
-             switch ($expectedType) {
-                 case 'date': try { $dateValue = $valueEntry['value'] ?? null; return $dateValue ? new DateTime($dateValue, new DateTimeZone('UTC')) : null; } catch (Exception $e) { return null; }
-                 case 'string': default: return $valueEntry['value'] ?? null;
-             }
-             return null; // Salir si se procesó la entrada activa
+            $actualAttributeType = $valueEntry['attribute_type'] ?? null;
+            switch ($expectedType) {
+                case 'date':
+                    try {
+                        $dateValue = $valueEntry['value'] ?? null;
+                        return $dateValue ? new DateTime($dateValue, new DateTimeZone('UTC')) : null;
+                    } catch (Exception $e) { return null; }
+                case 'number':
+                    // Si el atributo es de tipo 'currency' en Attio, el valor numérico está en 'currency_value'
+                    if ($actualAttributeType === 'currency') {
+                        return isset($valueEntry['currency_value']) ? (float)$valueEntry['currency_value'] : null;
+                    }
+                    // Para otros tipos numéricos, podría estar directamente en 'value'
+                    return isset($valueEntry['value']) ? (float)$valueEntry['value'] : null;
+                case 'currency_code':
+                    // Solo aplica si el atributo es de tipo 'currency' en Attio
+                    if ($actualAttributeType === 'currency' && isset($valueEntry['currency_code'])) {
+                        return $valueEntry['currency_code'];
+                    }
+                    return null;
+                case 'string':
+                default:
+                    return $valueEntry['value'] ?? null;
+            }
+            // Si encontramos una entrada activa y la procesamos, salimos del bucle.
+            // (Nota: La estructura original de Attio podría tener múltiples valores para un atributo,
+            // pero usualmente solo uno es el "activo" sin active_until.
+            // Esta función devuelve el primero que encuentra que cumple la condición).
+            return null; 
         }
-    } return null; // No se encontró entrada activa
+    }
+    return null; // No se encontró entrada activa
 }
 
 // --- LÓGICA PRINCIPAL ---
@@ -76,21 +110,12 @@ try {
     // --- 1. Construir Payload del Filtro Combinado ---
     $filterPayload = [
         "filter" => [
-            '$and' => [ // Operador lógico AND para combinar condiciones
-                [ // Condición 1: Status es Active
-                    COMPANY_STATUS_ATTRIBUTE_SLUG => [
-                        '$eq' => COMPANY_STATUS_ACTIVE_OPTION_ID
-                    ]
-                ],
-                [ // Condición 2: Contract End Date está en el rango del mes siguiente
-                    COMPANY_CONTRACT_END_DATE_SLUG => [
-                        '$gte' => $startDateApi,       // Mayor o igual que YYYY-MM-DD (inicio mes sig.)
-                        '$lt' => $endDateApiExclusive  // Menor que YYYY-MM-DD (inicio mes subsig.)
-                    ]
-                ]
+            '$and' => [
+                [COMPANY_STATUS_ATTRIBUTE_SLUG => ['$eq' => COMPANY_STATUS_ACTIVE_OPTION_ID]],
+                [COMPANY_CONTRACT_END_DATE_SLUG => ['$gte' => $startDateApi, '$lt' => $endDateApiExclusive]]
             ]
         ],
-        "limit" => 1000 // Poner un límite razonable
+        "limit" => 1000
     ];
 
     // --- 2. Hacer la llamada API ---
@@ -115,22 +140,51 @@ try {
         exit();
     }
 
-    // --- 4. Formatear Salida (Simplificada) ---
+    // --- 4. Formatear Salida ---
     $outputCompanies = [];
     $foundCompanies = $responseData['data'] ?? [];
     error_log("ActiveExpiringContracts: Encontradas " . count($foundCompanies) . " compañías activas con contrato expirando en $targetMonthStr.");
 
+    // Preparar el formateador de fecha para español
+    // Requiere la extensión intl de PHP: sudo apt-get install php-intl (o similar para tu sistema)
+    $dateFormatter = null;
+    if (class_exists('IntlDateFormatter')) {
+        $dateFormatter = new IntlDateFormatter(
+            'es_ES', // O 'es_MX' para México, etc.
+            IntlDateFormatter::LONG, // Estilo de fecha (sin hora)
+            IntlDateFormatter::NONE, // Estilo de hora
+            'UTC', // Zona horaria de los datos originales
+            IntlDateFormatter::GREGORIAN,
+            'dd \'de\' MMMM \'del\' yyyy' // Patrón personalizado
+        );
+    } else {
+        error_log("ActiveExpiringContracts: La extensión PHP intl no está instalada. Las fechas no se formatearán en español.");
+    }
+
     foreach ($foundCompanies as $companyData) {
-        $companyId = $companyData['id']['record_id'] ?? null; // Asume estructura ID Compañía
+        $companyId = $companyData['id']['record_id'] ?? null;
         if (!$companyId) continue;
 
         $contractEndDateObj = getAttributeValue($companyData, COMPANY_CONTRACT_END_DATE_SLUG, 'date');
+        $formattedContractEndDate = null;
+        if ($contractEndDateObj && $dateFormatter) {
+            $formattedContractEndDate = $dateFormatter->format($contractEndDateObj);
+        } elseif ($contractEndDateObj) {
+            $formattedContractEndDate = $contractEndDateObj->format('Y-m-d'); // Fallback si intl no está
+        }
+
+        // Obtener valor y moneda del contrato
+        // Asumimos que COMPANY_CONTRACT_VALUE_ATTRIBUTE_SLUG es un campo tipo "Currency" en Attio
+        $contractValue = getAttributeValue($companyData, COMPANY_CONTRACT_VALUE_ATTRIBUTE_SLUG, 'number');
+        $contractCurrency = getAttributeValue($companyData, COMPANY_CONTRACT_VALUE_ATTRIBUTE_SLUG, 'currency_code');
 
         $outputCompanies[] = [
             "company_id" => $companyId,
             "name" => getAttributeValue($companyData, COMPANY_NAME_SLUG, 'string'),
-            "contract_end_date" => $contractEndDateObj ? $contractEndDateObj->format('Y-m-d') : null // Devolver fecha simple
-            // Puedes añadir más campos aquí si los necesitas
+            "contract_end_date_iso" => $contractEndDateObj ? $contractEndDateObj->format('Y-m-d') : null,
+            "contract_end_date_formatted" => $formattedContractEndDate, // Fecha formateada en español
+            "contract_value" => $contractValue,
+            "contract_value_currency" => $contractCurrency
         ];
     }
 
@@ -151,7 +205,7 @@ try {
     echo json_encode([
         "success" => false,
         "message" => "Ocurrió un error interno procesando la solicitud.",
-        "details" => $e->getMessage() // Opcional para depuración
+        // "details" => $e->getMessage() // Descomentar solo para depuración, no en producción
     ], JSON_UNESCAPED_UNICODE);
 }
 
