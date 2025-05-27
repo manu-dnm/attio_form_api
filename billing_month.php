@@ -281,68 +281,76 @@ try {
     }
 
 
-    // --- PASO 4: Obtener Datos de Ciclos de Facturación Requeridos (CORREGIDO) ---
-    $billingCyclesDataMap = [];
-    $countIdsToRequest = count($uniqueBillingCycleIds);
-    // error_log("PRE-PASO 4: Comprobando \$uniqueBillingCycleIds. Cantidad: $countIdsToRequest"); // Log eliminado
+    // --- PASO 4: Obtener Datos de Ciclos de Facturación Requeridos (CON LOTES) ---
+$billingCyclesDataMap = [];
+$countIdsTotal = count($uniqueBillingCycleIds);
+error_log("PASO 4: Se necesitan datos para $countIdsTotal IDs de Billing Cycles en total.");
 
-    if (!empty($uniqueBillingCycleIds)) {
-        $idsToRequestJson = json_encode($uniqueBillingCycleIds);
-        error_log("PASO 4: Iniciando. Se solicitarán datos para $countIdsToRequest IDs de Billing Cycles."); // Log MANTENIDO (resumido)
+if (!empty($uniqueBillingCycleIds)) {
+    $chunkSize = 50; // Define un tamaño de lote razonable. Attio podría tener un límite, podrías experimentar.
+    $idChunks = array_chunk($uniqueBillingCycleIds, $chunkSize);
+    $processedChunks = 0;
+
+    foreach ($idChunks as $chunkIndex => $idChunk) {
+        $currentChunkCount = count($idChunk);
+        error_log("PASO 4 (Lote " . ($chunkIndex + 1) . "/" . count($idChunks) . "): Solicitando datos para $currentChunkCount IDs de Billing Cycles.");
+        
         $billingCyclesUrl = "{$attioApiBaseUrl}/objects/" . BILLING_CYCLE_OBJECT_SLUG . "/records/query";
-        $billingCyclesPayload = ["filter" => ["record_id" => ['$in' => $uniqueBillingCycleIds]]];
-        // error_log("PASO 4: Llamando a Attio API..."); // Log eliminado
+        // Asegúrate de que el payload sea correcto para la consulta
+        $billingCyclesPayload = ["filter" => ["record_id" => ['$in' => $idChunk]]]; // Usar el lote actual de IDs
+        
         $billingCyclesResult = makeAttioApiRequest($billingCyclesUrl, $attioApiKey, 'POST', $billingCyclesPayload);
-        // error_log("PASO 4: Respuesta API recibida. HTTP Code: ..."); // Log eliminado
+
+        error_log("PASO 4 DEBUG (Lote " . ($chunkIndex + 1) . "): HTTP Code: " . $billingCyclesResult['http_code']);
+        error_log("PASO 4 DEBUG (Lote " . ($chunkIndex + 1) . "): Respuesta CRUDA: " . $billingCyclesResult['response']);
 
         if ($billingCyclesResult['errno'] === 0 && $billingCyclesResult['http_code'] >= 200 && $billingCyclesResult['http_code'] < 300) {
-             // error_log("PASO 4: La llamada API fue exitosa..."); // Log eliminado
             $billingCyclesData = json_decode($billingCyclesResult['response'], true);
-            if (json_last_error() === JSON_ERROR_NONE && isset($billingCyclesData['data'])) {
-                 $returnedRecordsCount = count($billingCyclesData['data']);
-                 // error_log("PASO 4: JSON decodificado OK. Número de registros devueltos: $returnedRecordsCount..."); // Log eliminado
-                 $addedToMapCount = 0;
-                 foreach ($billingCyclesData['data'] as $record) {
+            $jsonDecodeError = json_last_error();
+
+            if ($jsonDecodeError === JSON_ERROR_NONE && isset($billingCyclesData['data'])) {
+                $returnedRecordsCount = count($billingCyclesData['data']);
+                error_log("PASO 4 (Lote " . ($chunkIndex + 1) . "): JSON decodificado OK. Número de registros devueltos: $returnedRecordsCount.");
+                $addedToMapCount = 0;
+                foreach ($billingCyclesData['data'] as $record) {
                     $recordId = null;
-                    // Intentar extraer el ID como string
                     if (isset($record['id'])) {
                         if (is_string($record['id'])) {
                             $recordId = $record['id'];
                         } elseif (is_array($record['id']) && isset($record['id']['record_id']) && is_string($record['id']['record_id'])) {
-                            // Extraer de la estructura tipo Company si es necesario
                             $recordId = $record['id']['record_id'];
                         }
                     }
-
-                    // Verificar si obtuvimos un ID string válido
-                    if ($recordId !== null) { // is_string() ya está implícito si no es null aquí
-                        // Añadir al mapa
+                    if ($recordId !== null) {
                         $billingCyclesDataMap[$recordId] = $record;
                         $addedToMapCount++;
                     } else {
-                        // --- ¡ESTE LOG ES EL IMPORTANTE AHORA! ---
                         $idInfo = 'NO EXISTE o tipo inválido';
                         if (isset($record['id'])) {
                              $idInfo = "Tipo: " . gettype($record['id']) . ", Valor: " . json_encode($record['id']);
                         }
-                        error_log("PASO 4: !!! ADVERTENCIA: No se pudo extraer un ID de registro válido (string) del registro de BC. Clave 'id' $idInfo. Registro completo: " . json_encode($record));
-                        // ------------------------------------------
+                        error_log("PASO 4 (Lote " . ($chunkIndex + 1) . "): !!! ADVERTENCIA: No se pudo extraer un ID de registro válido (string) del registro de BC. Clave 'id' $idInfo. Registro completo: " . json_encode($record));
                     }
-                } // ----- FIN DEL BUCLE A REEMPLAZAR -----
-                 error_log("PASO 4: Mapa de ciclos de facturación llenado con $addedToMapCount registros."); // Log MANTENIDO
+                }
+                error_log("PASO 4 (Lote " . ($chunkIndex + 1) . "): Añadidos $addedToMapCount registros al mapa.");
             } else {
-                 error_log("PASO 4: !!! ERROR JSON/Data (Billing Cycles): " . json_last_error_msg()); // Log de error MANTENIDO
-                 $billingCyclesDataMap = [];
+                 error_log("PASO 4 (Lote " . ($chunkIndex + 1) . "): !!! ERROR JSON/Data (Billing Cycles): " . json_last_error_msg() . ". Respuesta cruda ya logueada.");
             }
         } else {
-             error_log("PASO 4: !!! ERROR API/cURL (Billing Cycles): Código {$billingCyclesResult['http_code']} | Error: {$billingCyclesResult['error']}"); // Log de error MANTENIDO
-            $billingCyclesDataMap = [];
+             error_log("PASO 4 (Lote " . ($chunkIndex + 1) . "): !!! ERROR API/cURL (Billing Cycles): Código {$billingCyclesResult['http_code']} | Error: {$billingCyclesResult['error']}. Respuesta cruda ya logueada.");
+             // Considera si quieres detener todo el script aquí o intentar con los siguientes lotes.
+             // Por ahora, continuará con los siguientes lotes, pero el mapa podría estar incompleto.
         }
-    } else {
-         error_log("PASO 4: Saltado. No había IDs únicos de Billing Cycle requeridos."); // Log MANTENIDO
-    }
-    $finalMapCount = count($billingCyclesDataMap);
-    error_log("PASO 4: Finalizado. Tamaño final de \$billingCyclesDataMap: $finalMapCount"); // Log MANTENIDO
+        $processedChunks++;
+        // Opcional: Añadir un pequeño retardo para no sobrecargar la API si hay muchos lotes
+        // if ($processedChunks < count($idChunks)) { sleep(1); } 
+    } // Fin del bucle foreach ($idChunks...)
+
+} else {
+     error_log("PASO 4: Saltado. No había IDs únicos de Billing Cycle requeridos.");
+}
+$finalMapCount = count($billingCyclesDataMap);
+error_log("PASO 4: Finalizado. Tamaño final de \$billingCyclesDataMap después de procesar todos los lotes: $finalMapCount");
 
 
     // --- PASO 5: Generar los Objetos de Ciclos de Facturación para el Siguiente Mes (CORREGIDO) ---
